@@ -1160,6 +1160,55 @@ nav { padding: 12px 0; flex: 1; overflow-y: auto; }
 .cal-day.sun { color: #f78f8f; }
 .cal-day.sat { color: #7db3fa; }
 
+/* ── PROFILE CARD (auth.js 연동) ── */
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 16px 10px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  gap: 6px;
+}
+
+.profile-img {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent2), var(--accent));
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.profile-card h4,
+.profile-card #profileName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.profile-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text3);
+  font-family: 'Space Mono', monospace;
+}
+
+
+
+/* ── AUTH MODAL TWEAKS ── */
+#login-modal-overlay .modal,
+#signup-modal-overlay .modal,
+#profile-modal-overlay .modal,
+#reset-modal-overlay .modal,
+#profile-edit-modal-overlay .modal {
+  width: 400px;
+}
+
 /* ── RESPONSIVE ── */
 @media (max-width: 1100px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
