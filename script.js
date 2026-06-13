@@ -36,15 +36,6 @@ function closeModal(e) {
   }
 }
 
-function submitRequest() {
-  document.getElementById('modal-overlay').classList.remove('open');
-  const toast = document.createElement('div');
-  toast.style.cssText = 'position:fixed;bottom:28px;right:28px;background:#1e2a3a;border:1px solid rgba(79,214,160,0.3);color:#4fd6a0;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;z-index:999;display:flex;align-items:center;gap:8px;animation:toastIn 0.3s ease';
-  toast.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> 요청이 서브 DB에 저장되었습니다';
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 3500);
-}
-
 // AI Chat (demo)
 const aiResponses = {
   '급식': '오늘(6월 9일 월요일) 중식 메뉴입니다:\n🍚 현미밥\n🥘 된장찌개\n🥩 제육볶음\n🥬 시금치나물\n🥒 깍두기\n🍶 요거트\n\n총 칼로리: 약 780 kcal',
