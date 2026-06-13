@@ -81,9 +81,9 @@
 
   <div class="sidebar-bottom">
     <div class="user-card">
-      <div class="avatar">김</div>
+      <div class="avatar">임</div>
       <div class="user-info">
-        <div class="name">김민준</div>
+        <div class="name">지훈</div>
         <div class="role"><div class="role-dot"></div> 관리자</div>
       </div>
       <svg width="14" height="14" fill="none" stroke="var(--text3)" stroke-width="2" viewBox="0 0 24 24" style="margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
@@ -874,6 +874,18 @@
   </div>
 </div>
 
+<script type="module" src="firebase-init.js"></script>
+
+<script src="auth.js"></script>
+
+<script src="requests.js"></script>
+
 <script src="script.js"></script>
-</body>
+
+<script>
+  window.addEventListener('firebase-sdk-loaded', async () => {
+    await waitForFirebaseInit();
+    setupAuthListener();
+  });
+</script></body>
 </html>
