@@ -405,11 +405,6 @@ function updateUIForAuthState(isLoggedIn, profileData = null) {
                     </div>
                 </div>
                 <div id="profileName">${profileData.nickname || '사용자'}</div>
-                <div class="profile-stats">
-                    <div class="points" id="userPoints">${profileData.points || 0}</div>
-                    <div>포인트 순위: <span id="pointRank">-</span></div>
-                    <div><span id="classRank">-</span>/<span id="totalRank">-</span></div>
-                </div>
             `;
             
             // 프로필 이미지 호버 효과 추가
