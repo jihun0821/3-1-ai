@@ -8,6 +8,90 @@ const pages = {
   admin: { title: '관리자 패널', breadcrumb: '3학년 1반 / 관리자' }
 };
 
+// ══ 학교 시간표 정의 ══
+const SCHOOL_SCHEDULE = [
+  { period: 1, start: '08:40', end: '09:30' },
+  { period: 2, start: '09:40', end: '10:30' },
+  { period: 3, start: '10:40', end: '11:30' },
+  { period: 4, start: '11:40', end: '12:30' },
+  // 점심시간: 12:30 ~ 13:40
+  { period: 5, start: '13:40', end: '14:30' },
+  { period: 6, start: '14:40', end: '15:30' },
+  { period: 7, start: '15:40', end: '16:30' },
+  { period: 8, start: '16:40', end: '17:30' }
+];
+
+const BREAK_TIMES = [
+  { start: '09:30', end: '09:40', name: '쉬는시간' },
+  { start: '10:30', end: '10:40', name: '쉬는시간' },
+  { start: '11:30', end: '11:40', name: '쉬는시간' },
+  { start: '12:30', end: '13:40', name: '점심시간' },
+  { start: '14:30', end: '14:40', name: '쉬는시간' },
+  { start: '15:30', end: '15:40', name: '쉬는시간' },
+  { start: '16:30', end: '16:40', name: '쉬는시간' }
+];
+
+// ══ 현재 교시 및 날짜 정보 업데이트 함수 ══
+function updateCurrentPeriod() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const date = now.getDate();
+  const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][now.getDay()];
+  
+  const currentTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  
+  let statusMessage = '';
+  let currentPeriod = null;
+  
+  // 종료 시간 이후 확인
+  if (currentTime >= '17:30') {
+    statusMessage = '정규시간 종료';
+  } else {
+    // 점심시간 확인
+    if (currentTime >= '12:30' && currentTime < '13:40') {
+      statusMessage = '점심시간';
+    } else {
+      // 쉬는 시간 확인
+      for (const breakTime of BREAK_TIMES) {
+        if (currentTime >= breakTime.start && currentTime < breakTime.end) {
+          statusMessage = breakTime.name;
+          break;
+        }
+      }
+      
+      // 교시 확인
+      if (!statusMessage) {
+        for (const period of SCHOOL_SCHEDULE) {
+          if (currentTime >= period.start && currentTime < period.end) {
+            currentPeriod = period.period;
+            statusMessage = `${period.period}교시 진행 중`;
+            break;
+          }
+        }
+      }
+      
+      // 학교 시간 전
+      if (!statusMessage && currentTime < '08:40') {
+        statusMessage = '학교 시간 전';
+      }
+    }
+  }
+  
+  // 대시보드 헤더 업데이트
+  const subTextElement = document.querySelector('.page-sub');
+  if (subTextElement) {
+    subTextElement.textContent = `오늘은 ${year}년 ${month}월 ${date}일 ${dayOfWeek}요일입니다 · ${statusMessage}`;
+  }
+}
+
+// 페이지 로드 시 초기 업데이트
+document.addEventListener('DOMContentLoaded', function() {
+  updateCurrentPeriod();
+  // 매분 업데이트 (1분마다 확인)
+  setInterval(updateCurrentPeriod, 60000);
+});
+
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
