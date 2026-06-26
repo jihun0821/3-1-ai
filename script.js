@@ -8,6 +8,14 @@ const pages = {
   admin: { title: '관리자 패널', breadcrumb: '3학년 1반 / 관리자' }
 };
 
+// 통계 카운터
+let statsData = {
+  aiQuestions: 0,
+  assessmentCount: 0,
+  noticeCount: 0,
+  pendingRequests: 0
+};
+
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -22,6 +30,12 @@ function showPage(id) {
   });
   if (id === 'meal' && document.getElementById('meal-day-selector').childElementCount === 0) {
     buildMealDaySelector();
+  }
+  if (id === 'notices') {
+    loadNotices();
+  }
+  if (id === 'assessment') {
+    loadAssessments();
   }
 }
 
@@ -46,7 +60,6 @@ async function gatherContext() {
   const parts = [];
 
   try {
-    // 시간표
     const DAYS = ['월요일', '화요일', '수요일', '목요일', '금요일'];
     const ttLines = ['[시간표]'];
     for (const day of DAYS) {
@@ -66,7 +79,6 @@ async function gatherContext() {
   } catch (e) { parts.push('[시간표] 불러오기 실패'); }
 
   try {
-    // 공지사항
     const snap = await window.firebase.getDocs(
       window.firebase.collection(window.db, 'notices')
     );
@@ -79,7 +91,6 @@ async function gatherContext() {
   } catch (e) { parts.push('[공지사항] 불러오기 실패'); }
 
   try {
-    // 수행평가
     const snap = await window.firebase.getDocs(
       window.firebase.collection(window.db, 'assessments')
     );
@@ -92,7 +103,6 @@ async function gatherContext() {
   } catch (e) { parts.push('[수행평가] 불러오기 실패'); }
 
   try {
-    // 오늘 급식 (캐시에 있으면 사용)
     const todayStr = fmtDate(new Date());
     const cached = mealWeekCache[todayStr];
     if (cached && cached.length > 0) {
@@ -168,6 +178,8 @@ async function sendChat() {
   addTyping('chat-area');
   try {
     const answer = await callChatAPI(text);
+    statsData.aiQuestions++;
+    updateDashboardStats();
     removeTyping('chat-area');
     addChatMessage('chat-area', 'ai', answer);
   } catch (e) {
@@ -186,6 +198,8 @@ async function sendAIChat() {
   addTyping('ai-chat-area');
   try {
     const answer = await callChatAPI(text);
+    statsData.aiQuestions++;
+    updateDashboardStats();
     removeTyping('ai-chat-area');
     addChatMessage('ai-chat-area', 'ai', answer);
   } catch (e) {
@@ -390,3 +404,297 @@ function selectMealDay(btn, isoStr) {
   btn.classList.add('active');
   loadMeal(new Date(isoStr));
 }
+
+// ══════════════════════════════════════════════════════════════
+// ══ 대시보드 동적 데이터 업데이트 ══
+// ══════════════════════════════════════════════════════════════
+
+function updateTodayInfo() {
+  const now = new Date();
+  const days = ['일','월','화','수','목','금','토'];
+  const dayName = days[now.getDay()];
+  const dateStr = `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 ${dayName}요일`;
+  
+  // 현재 교시 계산
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+  
+  let currentPeriod = '-';
+  if (totalMinutes >= 9*60 && totalMinutes < 10*60) currentPeriod = '1';
+  else if (totalMinutes >= 10*60 && totalMinutes < 11*60) currentPeriod = '2';
+  else if (totalMinutes >= 11*60 && totalMinutes < 12*60) currentPeriod = '3';
+  else if (totalMinutes >= 13*60 && totalMinutes < 14*60) currentPeriod = '4';
+  else if (totalMinutes >= 14*60 && totalMinutes < 15*60) currentPeriod = '5';
+  else if (totalMinutes >= 15*60 && totalMinutes < 16*60) currentPeriod = '6';
+  else if (totalMinutes >= 16*60 && totalMinutes < 17*60) currentPeriod = '7';
+  
+  const subtitle = `오늘은 ${dateStr} · ${currentPeriod}교시 진행 중`;
+  const el = document.querySelector('.page#page-dashboard .page-sub');
+  if (el) el.textContent = subtitle;
+}
+
+function updateDashboardStats() {
+  // AI 질문 수
+  const aiValue = document.querySelector('.stat-card:nth-child(2) .stat-value');
+  if (aiValue) aiValue.textContent = statsData.aiQuestions;
+  
+  // 수행평가 수
+  const assessValue = document.querySelector('.stat-card:nth-child(3) .stat-value');
+  if (assessValue) assessValue.textContent = statsData.assessmentCount;
+  
+  // 대기 중 요청
+  const pendingValue = document.querySelector('.stat-card:nth-child(4) .stat-value');
+  if (pendingValue) pendingValue.textContent = statsData.pendingRequests;
+}
+
+async function loadNotices() {
+  if (!window.db || !window.firebase) {
+    console.error('Firestore not initialized');
+    return;
+  }
+
+  try {
+    const snap = await window.firebase.getDocs(
+      window.firebase.collection(window.db, 'notices')
+    );
+    
+    const notices = [];
+    snap.forEach(doc => {
+      const d = doc.data();
+      notices.push({
+        id: doc.id,
+        tag: d.tag || 'notice',
+        title: d.title || '제목 없음',
+        content: d.content || '',
+        date: d.date || '날짜 없음',
+        author: d.author || '작성자 없음'
+      });
+    });
+
+    notices.sort((a, b) => new Date(b.date) - new Date(a.date));
+    statsData.noticeCount = notices.length;
+
+    renderDashboardNotices(notices);
+    renderNoticesPage(notices);
+    updateNoticesBadge(notices.length);
+    updateDashboardStats();
+
+  } catch (e) {
+    console.error('공지사항 로드 실패:', e);
+  }
+}
+
+function renderDashboardNotices(notices) {
+  const dashboardList = document.querySelector('.page#page-dashboard .notice-list');
+  if (!dashboardList) return;
+
+  dashboardList.innerHTML = notices.slice(0, 4).map(notice => {
+    const tagClass = {
+      '긴급': 'tag-urgent',
+      '수행': 'tag-assess',
+      '행사': 'tag-event',
+      'notice': 'tag-notice'
+    }[notice.tag] || 'tag-notice';
+
+    return `
+      <div class="notice-item">
+        <span class="notice-tag ${tagClass}">${notice.tag}</span>
+        <div class="notice-content">
+          <div class="notice-title">${notice.title}</div>
+          <div class="notice-meta">${notice.date} · ${notice.author}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderNoticesPage(notices) {
+  const pageList = document.querySelector('.page#page-notices .notice-list');
+  if (!pageList) return;
+
+  pageList.innerHTML = notices.map(notice => {
+    const tagClass = {
+      '긴급': 'tag-urgent',
+      '수행': 'tag-assess',
+      '행사': 'tag-event',
+      'notice': 'tag-notice'
+    }[notice.tag] || 'tag-notice';
+
+    return `
+      <div class="notice-item" style="padding:14px 0">
+        <span class="notice-tag ${tagClass}">${notice.tag}</span>
+        <div class="notice-content">
+          <div class="notice-title" style="font-size:14px">${notice.title}</div>
+          <div class="notice-meta" style="margin-top:5px">${notice.date} · ${notice.author}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateNoticesBadge(count) {
+  const badge = document.querySelector('.nav-item[onclick*="notices"] .nav-badge');
+  if (badge) badge.textContent = count;
+}
+
+async function loadAssessments() {
+  if (!window.db || !window.firebase) {
+    console.error('Firestore not initialized');
+    return;
+  }
+
+  try {
+    const snap = await window.firebase.getDocs(
+      window.firebase.collection(window.db, 'assessments')
+    );
+    
+    const assessments = [];
+    snap.forEach(doc => {
+      const d = doc.data();
+      assessments.push({
+        id: doc.id,
+        subject: d.subject || '과목',
+        title: d.title || '제목 없음',
+        date: d.date || '',
+        range: d.range || '',
+        dday: d.dday !== undefined ? d.dday : 0,
+        order: d.order || 999
+      });
+    });
+
+    assessments.sort((a, b) => (a.order || 999) - (b.order || 999));
+    statsData.assessmentCount = assessments.length;
+
+    renderAssessmentsPage(assessments);
+    updateDashboardStats();
+
+  } catch (e) {
+    console.error('수행평가 로드 실패:', e);
+  }
+}
+
+function renderAssessmentsPage(assessments) {
+  const assessList = document.querySelector('.page#page-assessment .assess-list');
+  if (!assessList) return;
+
+  const subjectColorClass = {
+    '국어': 'subj-kr',
+    '수학': 'subj-math',
+    '영어': 'subj-eng',
+    '과학': 'subj-sci',
+    '사회': 'subj-soc',
+  };
+
+  const daysLeftClass = (dday) => {
+    if (dday <= 3) return 'days-soon';
+    if (dday <= 7) return 'days-normal';
+    return 'days-far';
+  };
+
+  const parseDate = (dateStr) => {
+    const parts = dateStr.split('-');
+    return { year: parts[0], month: parts[1], day: parts[2] };
+  };
+
+  assessList.innerHTML = assessments.map(a => {
+    const dateParts = parseDate(a.date);
+    const colorClass = subjectColorClass[a.subject] || 'subj-kr';
+    const daysClass = daysLeftClass(a.dday);
+
+    return `
+      <div class="assess-item">
+        <div class="assess-date">
+          <div class="assess-day">${dateParts.day}</div>
+          <div class="assess-month">
+            ${new Date(a.date).toLocaleDateString('ko-KR', { month: 'short' }).toUpperCase()}
+          </div>
+        </div>
+        <div class="assess-divider"></div>
+        <div class="assess-subject ${colorClass}">${a.subject}</div>
+        <div class="assess-info">
+          <div class="assess-title">${a.title}</div>
+          <div class="assess-range">${a.range}</div>
+        </div>
+        <div class="days-left ${daysClass}">D-${a.dday}</div>
+      </div>
+    `;
+  }).join('');
+
+  updateAssessmentStats(assessments);
+}
+
+function updateAssessmentStats(assessments) {
+  const statsContainer = document.querySelector('.page#page-assessment .card:nth-child(2) .card-body');
+  if (!statsContainer) return;
+
+  const statsBySubject = {};
+  assessments.forEach(a => {
+    if (!statsBySubject[a.subject]) {
+      statsBySubject[a.subject] = { total: 0, completed: 0 };
+    }
+    statsBySubject[a.subject].total++;
+  });
+
+  const subjectColors = {
+    '국어': { color: '#7db3fa', hexColor: '#7db3fa' },
+    '수학': { color: '#a89bfa', hexColor: '#7b6ef7' },
+    '영어': { color: '#5de8c8', hexColor: '#4fd6b8' },
+    '과학': { color: '#5dda9e', hexColor: '#4fd6a0' },
+    '사회': { color: '#f7c44f', hexColor: '#f7c44f' },
+  };
+
+  const statsHtml = Object.entries(statsBySubject).map(([subject, stats]) => {
+    const percentage = (stats.completed / stats.total * 100) || 0;
+    const colors = subjectColors[subject] || { color: '#888', hexColor: '#888' };
+    return `
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+          <span style="color:${colors.color};font-weight:500">${subject}</span>
+          <span style="color:var(--text3);font-family:'Space Mono',monospace;font-size:12px">${stats.completed}/${stats.total}</span>
+        </div>
+        <div style="height:5px;background:var(--surface);border-radius:3px;overflow:hidden">
+          <div style="width:${percentage}%;height:100%;background:${colors.hexColor};border-radius:3px"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const wrapper = document.querySelector('.page#page-assessment .card:nth-child(2) .card-body > div');
+  if (wrapper) wrapper.innerHTML = statsHtml;
+}
+
+async function loadPendingRequests() {
+  if (!window.db || !window.firebase) {
+    console.error('Firestore not initialized');
+    return;
+  }
+
+  try {
+    const snap = await window.firebase.getDocs(
+      window.firebase.collection(window.db, 'requests')
+    );
+    
+    statsData.pendingRequests = snap.size;
+    updateDashboardStats();
+  } catch (e) {
+    console.error('대기 요청 로드 실패:', e);
+  }
+}
+
+// ══ 페이지 로드 시 초기화 ══
+document.addEventListener('DOMContentLoaded', () => {
+  // 날짜 업데이트
+  updateTodayInfo();
+  setInterval(updateTodayInfo, 60000); // 1분마다 업데이트
+  
+  // Firebase 초기화되면 데이터 로드
+  const checkFirebase = setInterval(() => {
+    if (window.firebase && window.db) {
+      clearInterval(checkFirebase);
+      loadNotices();
+      loadAssessments();
+      loadPendingRequests();
+    }
+  }, 500);
+});
