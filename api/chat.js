@@ -52,7 +52,7 @@ ${question}`;
           ],
           generationConfig: {
             temperature: 0.4,
-            maxOutputTokens: 500
+            maxOutputTokens: 5000
           }
         })
       }
