@@ -1,11 +1,11 @@
 const pages = {
-  dashboard: { title: '대시보드', breadcrumb: '3학년 2반 / 홈' },
-  ai: { title: 'AI 학급 도우미', breadcrumb: '3학년 2반 / AI 도우미' },
-  timetable: { title: '시간표', breadcrumb: '3학년 2반 / 시간표' },
-  notices: { title: '공지사항', breadcrumb: '3학년 2반 / 공지사항' },
-  assessment: { title: '수행평가', breadcrumb: '3학년 2반 / 수행평가' },
-  meal: { title: '급식 메뉴', breadcrumb: '3학년 2반 / 급식' },
-  admin: { title: '관리자 패널', breadcrumb: '3학년 2반 / 관리자' }
+  dashboard: { title: '대시보드', breadcrumb: '3학년 1반 / 홈' },
+  ai: { title: 'AI 학급 도우미', breadcrumb: '3학년 1반 / AI 도우미' },
+  timetable: { title: '시간표', breadcrumb: '3학년 1반 / 시간표' },
+  notices: { title: '공지사항', breadcrumb: '3학년 1반 / 공지사항' },
+  assessment: { title: '수행평가', breadcrumb: '3학년 1반 / 수행평가' },
+  meal: { title: '급식 메뉴', breadcrumb: '3학년 1반 / 급식' },
+  admin: { title: '관리자 패널', breadcrumb: '3학년 1반 / 관리자' }
 };
 
 function showPage(id) {
@@ -36,21 +36,94 @@ function closeModal(e) {
   }
 }
 
-// AI Chat (demo)
-const aiResponses = {
-  '급식': '오늘(6월 9일 월요일) 중식 메뉴입니다:\n🍚 현미밥\n🥘 된장찌개\n🥩 제육볶음\n🥬 시금치나물\n🥒 깍두기\n🍶 요거트\n\n총 칼로리: 약 780 kcal',
-  '시간표': '오늘(월요일) 시간표입니다:\n1교시 국어\n2교시 수학\n3교시 영어 ← 현재\n4교시 과학\n5교시 사회\n6교시 미술\n7교시 가정',
-  '수행평가': '이번 주 수행평가 일정입니다:\n📝 6월 12일(목) - 국어 독서 감상문 제출 (D-3)\n📐 6월 16일(월) - 수학 단원 서술형 평가 (D-7)',
-  '공지': '최근 공지사항입니다:\n🔴 [긴급] 내일 5·6교시 시간표 변경\n📝 국어 독서 감상문 제출 D-3\n🏃 체육대회 6월 20일 확정',
-};
+// ══ Vercel API 주소 ══
+const CHAT_API_URL = 'https://3-1-ai.vercel.app/api/chat';
 
+// ══ Firestore에서 학급 데이터를 모아 context 문자열로 만들기 ══
+async function gatherContext() {
+  if (!window.db || !window.firebase) return '(DB 연결 안 됨)';
+
+  const parts = [];
+
+  try {
+    // 시간표
+    const DAYS = ['월요일', '화요일', '수요일', '목요일', '금요일'];
+    const ttLines = ['[시간표]'];
+    for (const day of DAYS) {
+      const snap = await window.firebase.getDoc(
+        window.firebase.doc(window.db, 'timetable', day)
+      );
+      if (snap.exists()) {
+        const d = snap.data();
+        const periods = Object.entries(d)
+          .sort((a, b) => Number(a[0]) - Number(b[0]))
+          .map(([p, s]) => `${p}교시:${s}`)
+          .join(' ');
+        ttLines.push(`${day}: ${periods}`);
+      }
+    }
+    parts.push(ttLines.join('\n'));
+  } catch (e) { parts.push('[시간표] 불러오기 실패'); }
+
+  try {
+    // 공지사항
+    const snap = await window.firebase.getDocs(
+      window.firebase.collection(window.db, 'notices')
+    );
+    const lines = ['[공지사항]'];
+    snap.forEach(doc => {
+      const d = doc.data();
+      lines.push(`- [${d.tag}] ${d.title} (${d.date}, ${d.author}): ${d.content}`);
+    });
+    parts.push(lines.join('\n'));
+  } catch (e) { parts.push('[공지사항] 불러오기 실패'); }
+
+  try {
+    // 수행평가
+    const snap = await window.firebase.getDocs(
+      window.firebase.collection(window.db, 'assessments')
+    );
+    const lines = ['[수행평가]'];
+    snap.forEach(doc => {
+      const d = doc.data();
+      lines.push(`- ${d.subject} / ${d.title} / ${d.date} / 범위: ${d.range} / D-${d.dday}`);
+    });
+    parts.push(lines.join('\n'));
+  } catch (e) { parts.push('[수행평가] 불러오기 실패'); }
+
+  try {
+    // 오늘 급식 (캐시에 있으면 사용)
+    const todayStr = fmtDate(new Date());
+    const cached = mealWeekCache[todayStr];
+    if (cached && cached.length > 0) {
+      const MEAL_LABEL = { '1': '조식', '2': '중식', '3': '석식' };
+      const lines = ['[오늘 급식]'];
+      cached.forEach(row => {
+        const label = MEAL_LABEL[row.MMEAL_SC_CODE] || '급식';
+        const menu = row.DDISH_NM
+          .replace(/<br\/>/gi, ', ')
+          .replace(/[\d.]+/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        lines.push(`- ${label}: ${menu} (${row.CAL_INFO || ''})`);
+      });
+      parts.push(lines.join('\n'));
+    } else {
+      parts.push('[오늘 급식] 데이터 없음 (급식 페이지 먼저 방문 시 로드됨)');
+    }
+  } catch (e) { parts.push('[오늘 급식] 불러오기 실패'); }
+
+  return parts.join('\n\n');
+}
+
+// ══ 채팅 UI 헬퍼 ══
 function addChatMessage(area, role, text) {
   const wrap = document.getElementById(area);
   const div = document.createElement('div');
   div.className = 'chat-msg' + (role === 'user' ? ' user' : '');
   div.innerHTML = role === 'user'
     ? `<div class="chat-avatar user-chat-avatar">나</div><div class="chat-bubble user-bubble">${text}</div>`
-    : `<div class="chat-avatar ai-avatar">AI</div><div class="chat-bubble ai-bubble">${text.replace(/\n/g,'<br>')}</div>`;
+    : `<div class="chat-avatar ai-avatar">AI</div><div class="chat-bubble ai-bubble">${text.replace(/\n/g, '<br>')}</div>`;
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
 }
@@ -69,38 +142,56 @@ function removeTyping(area) {
   if (el) el.remove();
 }
 
-function getAIReply(text) {
-  const t = text.toLowerCase();
-  for (const [k, v] of Object.entries(aiResponses)) {
-    if (t.includes(k)) return v;
+// ══ Vercel API 호출 ══
+async function callChatAPI(question) {
+  const context = await gatherContext();
+  const res = await fetch(CHAT_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, context })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `서버 오류 (${res.status})`);
   }
-  return 'Firebase 학급 데이터를 검색했지만 관련 정보를 찾지 못했어요. 더 구체적으로 질문해주시거나, 정보가 없다면 "정보 등록 요청"을 통해 추가해주세요!';
+  const data = await res.json();
+  return data.answer || '응답을 받지 못했어요.';
 }
 
-function sendChat() {
+// ══ 대시보드 채팅 ══
+async function sendChat() {
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
   if (!text) return;
   addChatMessage('chat-area', 'user', text);
   input.value = '';
   addTyping('chat-area');
-  setTimeout(() => {
+  try {
+    const answer = await callChatAPI(text);
     removeTyping('chat-area');
-    addChatMessage('chat-area', 'ai', getAIReply(text));
-  }, 1100);
+    addChatMessage('chat-area', 'ai', answer);
+  } catch (e) {
+    removeTyping('chat-area');
+    addChatMessage('chat-area', 'ai', `⚠️ 오류가 발생했어요: ${e.message}`);
+  }
 }
 
-function sendAIChat() {
+// ══ AI 페이지 채팅 ══
+async function sendAIChat() {
   const input = document.getElementById('ai-chat-input');
   const text = input.value.trim();
   if (!text) return;
   addChatMessage('ai-chat-area', 'user', text);
   input.value = '';
   addTyping('ai-chat-area');
-  setTimeout(() => {
+  try {
+    const answer = await callChatAPI(text);
     removeTyping('ai-chat-area');
-    addChatMessage('ai-chat-area', 'ai', getAIReply(text));
-  }, 1200);
+    addChatMessage('ai-chat-area', 'ai', answer);
+  } catch (e) {
+    removeTyping('ai-chat-area');
+    addChatMessage('ai-chat-area', 'ai', `⚠️ 오류가 발생했어요: ${e.message}`);
+  }
 }
 
 function handleChatKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }
@@ -120,14 +211,10 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ══ NEIS 급식 API 연동 ══
-// ⚠️ 학교 코드는 아래에서 확인:
-//    https://open.neis.go.kr/hub/schoolInfo?KEY=ee3525bfb94f40258c16eea2ddac370a&Type=json&SCHUL_NM=한일고&LCTN_SC_NM=충청남도
-// 충남교육청 코드: N10 / 학교 코드: 실제 API 호출 후 SD_SCHUL_CODE 값 사용
 const NEIS_KEY   = 'ee3525bfb94f40258c16eea2ddac370a';
-const ATPT_CODE  = 'N10';      // 충청남도교육청
-const SCHUL_CODE = '7441136';  // 공주 한일고등학교 (NEIS 검색 기준)
+const ATPT_CODE  = 'N10';
+const SCHUL_CODE = '7441136';
 
-// CORS 프록시 목록 — 앞에서부터 순서대로 시도
 const CORS_PROXIES = [
   url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -141,13 +228,12 @@ const MEAL_TYPE = {
 };
 
 let currentMealDate = null;
-let mealWeekCache   = {};  // dateStr → rows[]
+let mealWeekCache   = {};
 
-// 날짜 유틸 — 해당 주 일요일~토요일 7일 반환
 function getWeekDates(base) {
   const d = new Date(base);
   const sun = new Date(d);
-  sun.setDate(d.getDate() - d.getDay()); // 0=일 기준 일요일로 이동
+  sun.setDate(d.getDate() - d.getDay());
   return Array.from({length: 7}, (_, i) => {
     const dt = new Date(sun);
     dt.setDate(sun.getDate() + i);
@@ -162,7 +248,6 @@ function fmtDisplay(dt) {
   return `${dt.getMonth()+1}월 ${dt.getDate()}일 (${days[dt.getDay()]})`;
 }
 
-// NEIS API → 프록시 폴백 체인으로 호출
 async function fetchMealFromNEIS(dateStr) {
   const neisUrl = `https://open.neis.go.kr/hub/mealServiceDietInfo`
     + `?KEY=${NEIS_KEY}&Type=json&pIndex=1&pSize=10`
@@ -175,7 +260,6 @@ async function fetchMealFromNEIS(dateStr) {
       const res = await fetch(makeProxy(neisUrl), {signal: AbortSignal.timeout(8000)});
       if (!res.ok) continue;
       const json = await res.json();
-      // allorigins → { contents: "..." }, codetabs / corsproxy → 직접 JSON
       const data = json.contents ? JSON.parse(json.contents) : json;
       return data;
     } catch(e) { lastErr = e; }
@@ -184,14 +268,12 @@ async function fetchMealFromNEIS(dateStr) {
 }
 
 function parseMealRows(data) {
-  // NEIS 오류 응답: { RESULT: { CODE: "INFO-200", MESSAGE: "해당하는 데이터가 없습니다." } }
   if (!data || data.RESULT) return [];
   return data?.mealServiceDietInfo?.[1]?.row || [];
 }
 
 function renderMealCard(row) {
   const ti = MEAL_TYPE[row.MMEAL_SC_CODE] || {label:'급식', emoji:'🍽️', color:'var(--text2)', dotColor:'#888', borderColor:'var(--border)'};
-  // 알레르기 번호(예: "1.2.5") 제거 + <br/> → 줄바꿈
   const items = row.DDISH_NM
     .replace(/<br\/>/gi, '\n')
     .split('\n')
@@ -210,18 +292,16 @@ function renderMealCard(row) {
     </div>`;
 }
 
-// UI 상태 헬퍼
 function mealShow(id) {
   ['meal-loading','meal-error','meal-empty','meal-content'].forEach(k => {
     document.getElementById(k).style.display = k === id ? 'block' : 'none';
   });
 }
 
-// 급식 API 상태 뱃지 업데이트
 function setMealApiStatus(state) {
   const el = document.getElementById('meal-api-status');
   if (!el) return;
-  if (state === 'ok')      el.innerHTML = '<div class="rag-dot"></div> NEIS 연결됨';
+  if (state === 'ok')       el.innerHTML = '<div class="rag-dot"></div> NEIS 연결됨';
   else if (state === 'err') el.innerHTML = '<div class="rag-dot" style="background:var(--danger)"></div> 연결 실패';
   else                      el.innerHTML = '<div class="rag-dot" style="animation:none;opacity:.4"></div> 불러오는 중…';
 }
@@ -230,7 +310,6 @@ async function loadMeal(dateObj) {
   currentMealDate = dateObj;
   const dateStr = fmtDate(dateObj);
 
-  // 캐시 히트
   if (mealWeekCache[dateStr] !== undefined) {
     const rows = mealWeekCache[dateStr];
     if (rows.length === 0) mealShow('meal-empty');
@@ -261,18 +340,17 @@ async function loadMeal(dateObj) {
 }
 
 function loadWeekMeals() {
-  mealWeekCache = {};  // 전체 캐시 초기화
+  mealWeekCache = {};
   buildMealDaySelector();
 }
 
 function buildMealDaySelector() {
-  const today    = new Date();
-  const weekDates = getWeekDates(today);   // 일~토 7일
+  const today     = new Date();
+  const weekDates = getWeekDates(today);
   const todayStr  = fmtDate(today);
   const selector  = document.getElementById('meal-day-selector');
   const DAY_KO    = ['일','월','화','수','목','금','토'];
 
-  // 주간 레이블 (일~토)
   const wl = document.getElementById('meal-week-label');
   if (wl) {
     const sun = weekDates[0], sat = weekDates[6];
@@ -284,7 +362,6 @@ function buildMealDaySelector() {
     const isToday = ds === todayStr;
     const isSun   = i === 0;
     const isSat   = i === 6;
-    // 주말 버튼은 색상 구분
     const weekendStyle = isSun
       ? 'color:#f78f8f;border-color:rgba(247,143,143,0.25)'
       : isSat
@@ -304,7 +381,6 @@ function buildMealDaySelector() {
     </button>`;
   }).join('');
 
-  // 오늘 날짜로 바로 급식 로드
   const target = weekDates.find(d => fmtDate(d) === todayStr) || weekDates[0];
   loadMeal(target);
 }
